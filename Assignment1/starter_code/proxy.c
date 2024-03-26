@@ -93,7 +93,8 @@ void handle_client(int client_fd) {
 // 输出截断后的请求行、主机和路径信息
     printf("Truncated request line: %s\n", path_start);
     printf("Parsed host: %s\n", host_start);
-
+    
+   
 
 
     // Extract necessary information from the parsed request
@@ -108,6 +109,28 @@ void handle_client(int client_fd) {
         ParsedRequest_destroy(parsedRequest);
         return;
     }
+
+    //--modify--
+    if (strcmp(parsedRequest->version, "HTTP/1.1") == 0) {
+        parsedRequest->version = strdup("HTTP/1.0");
+    }
+    ParsedHeader_set(parsedRequest, "Connection", "close");
+    ParsedHeader_set(parsedRequest, "Host", host);
+
+    
+
+    size_t total_len = ParsedRequest_totalLen(parsedRequest);
+    char *new_request = (char *)malloc(total_len);
+    if (ParsedRequest_unparse(parsedRequest, new_request, total_len) < 0) {
+        char *response = "HTTP/1.0 500 Internal Server Error\r\n\r\n";
+        write(client_fd, response, strlen(response));
+        free(new_request);
+        ParsedRequest_destroy(parsedRequest);
+        return;
+    }
+    struct hostent *server = gethostbyname(host);
+
+    //modify--end
     char request[RECV_BUFFER_SIZE];
     snprintf(request, sizeof(request), "%s %s HTTP/1.0\r\nHost: %s:%s\r\nConnection: close\r\n\r\n",
          parsedRequest->method, path, host, port);
@@ -127,6 +150,7 @@ void handle_client(int client_fd) {
         close(remote_fd);
         return;
     }
+
     remote_fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
     if (remote_fd == -1) {
         perror("socket");
@@ -141,12 +165,20 @@ void handle_client(int client_fd) {
     }
     // Send the request to the remote server
     printf("Sending request to remote server:\n%s\n", request);
-    if(send(remote_fd, request, strlen(request), 0) == -1){
+    //modify--start
+    if(send(remote_fd, new_request, strlen(new_request), 0) == -1){
         perror("send");
         close(client_fd);
         close(remote_fd);
         return;
     }
+    //modify--end
+    // if(send(remote_fd, request, strlen(request), 0) == -1){
+    //     perror("send");
+    //     close(client_fd);
+    //     close(remote_fd);
+    //     return;
+    // }
     ssize_t bytesSent;
     while((bytesRead = recv(remote_fd, buffer, sizeof(buffer), 0)) > 0){
         bytesSent = send(client_fd, buffer, bytesRead, 0);
